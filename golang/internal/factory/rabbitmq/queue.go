@@ -109,6 +109,15 @@ func (q *queueMiddleware) StopConsuming() {
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareMessage.
 func (q *queueMiddleware) Send(msg m.Message) (err error) {
+	err = q.channel.Publish(
+		"",          // exchange
+		q.queueName, // routing key
+		false,       // mandatory
+		false,       // immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(msg.Body),
+		})
 	return nil
 }
 
