@@ -12,6 +12,7 @@ type queueMiddleware struct {
 	conn      *amqp.Connection
 	channel   *amqp.Channel
 	queueName string
+	stop      chan any
 }
 
 // Usar estos mensajes de error
@@ -51,6 +52,7 @@ func NewQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.
 		conn:      conn,
 		channel:   ch,
 		queueName: queueName,
+		stop:      make(chan any),
 	}, nil
 }
 
@@ -77,25 +79,31 @@ func (q *queueMiddleware) StartConsuming(callbackFunc func(msg m.Message, ack fu
 		return m.ErrMessageMiddlewareMessage
 	}
 
-	var forever chan struct{}
-
-	go func() {
-		for d := range msgs {
-			log.Printf("Received a message: %s", d.Body)
-			callbackFunc(m.Message{Body: string(d.Body)}, func() { d.Ack(false) }, func() { d.Nack(false, true) })
-		}
-	}()
-
 	log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
-	<-forever
 
-	return nil
+	for {
+		select {
+		case <-q.stop:
+			return nil
+		case msg, ok := <-msgs:
+			if !ok {
+				if q.conn.IsClosed() {
+					return m.ErrMessageMiddlewareDisconnected
+				}
+				return nil
+			}
+			log.Printf("Received a message: %s", msg.Body)
+			callbackFunc(m.Message{Body: string(msg.Body)}, func() { msg.Ack(false) }, func() { msg.Nack(false, true) })
+		}
+	}
 }
 
 // Si se estaba consumiendo desde la cola/exchange, se detiene la escucha. Si
 // no se estaba consumiendo de la cola/exchange, no tiene efecto, ni levanta
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
-func (q *queueMiddleware) StopConsuming() {}
+func (q *queueMiddleware) StopConsuming() {
+	close(q.stop)
+}
 
 // Envía un mensaje a la cola o a los tópicos con el que se inicializó el exchange.
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
@@ -107,5 +115,12 @@ func (q *queueMiddleware) Send(msg m.Message) (err error) {
 // Se desconecta de la cola o exchange al que estaba conectado.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareClose.
 func (q *queueMiddleware) Close() error {
+	errChan := q.channel.Close()
+	errConn := q.conn.Close()
+
+	if errChan != nil || errConn != nil {
+		return m.ErrMessageMiddlewareClose
+	}
+
 	return nil
 }
