@@ -118,6 +118,13 @@ func (q *queueMiddleware) Send(msg m.Message) (err error) {
 			ContentType: "text/plain",
 			Body:        []byte(msg.Body),
 		})
+
+	if err != nil {
+		if q.conn.IsClosed() {
+			return m.ErrMessageMiddlewareDisconnected
+		}
+		return m.ErrMessageMiddlewareMessage
+	}
 	return nil
 }
 
