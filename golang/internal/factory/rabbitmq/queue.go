@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"fmt"
+	"log"
 
 	m "github.com/7574-sistemas-distribuidos/tp-mom/golang/internal/middleware"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -61,24 +62,50 @@ func NewQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.
 // nack - Una función que hace NACK del mensaje recibido.
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareMessage.
-func (*queueMiddleware) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack func())) (err error) {
+func (q *queueMiddleware) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack func())) (err error) {
+	msgs, err := q.channel.Consume(
+		q.queueName, // queue
+		"",          // consumer
+		true,        // auto-ack
+		false,       // exclusive
+		false,       // no-local
+		false,       // no-wait
+		nil,         // args
+	)
+
+	if err != nil {
+		return m.ErrMessageMiddlewareMessage
+	}
+
+	var forever chan struct{}
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Received a message: %s", d.Body)
+			callbackFunc(m.Message{Body: string(d.Body)}, func() { d.Ack(false) }, func() { d.Nack(false, true) })
+		}
+	}()
+
+	log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
+	<-forever
+
 	return nil
 }
 
 // Si se estaba consumiendo desde la cola/exchange, se detiene la escucha. Si
 // no se estaba consumiendo de la cola/exchange, no tiene efecto, ni levanta
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
-func (*queueMiddleware) StopConsuming() {}
+func (q *queueMiddleware) StopConsuming() {}
 
 // Envía un mensaje a la cola o a los tópicos con el que se inicializó el exchange.
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareMessage.
-func (*queueMiddleware) Send(msg m.Message) (err error) {
+func (q *queueMiddleware) Send(msg m.Message) (err error) {
 	return nil
 }
 
 // Se desconecta de la cola o exchange al que estaba conectado.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareClose.
-func (*queueMiddleware) Close() error {
+func (q *queueMiddleware) Close() error {
 	return nil
 }
