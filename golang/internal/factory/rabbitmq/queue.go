@@ -13,16 +13,21 @@ type queueMiddleware struct {
 	queueName string
 }
 
+// Usar estos mensajes de error
+// ErrMessageMiddlewareMessage      = errors.New("message middleware: message error")
+// 	ErrMessageMiddlewareDisconnected = errors.New("message middleware: disconnected")
+// 	ErrMessageMiddlewareClose        = errors.New("message middleware: close error")
+
 func NewQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.Middleware, error) {
 	conn, err := amqp.Dial(fmt.Sprintf("amqp://guest:guest@%s:%d/", connectionSettings.Hostname, connectionSettings.Port))
 	if err != nil {
-		return nil, err
+		return nil, m.ErrMessageMiddlewareMessage
 	}
 	defer conn.Close() //Esto se me va a cerrar post constructor. No puedo hacer el defer aca
 
 	ch, err := conn.Channel()
 	if err != nil {
-		return nil, err
+		return nil, m.ErrMessageMiddlewareMessage
 	}
 	defer ch.Close() //Idem lo anterior
 
