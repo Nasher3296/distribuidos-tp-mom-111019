@@ -43,7 +43,7 @@ func NewQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.
 	)
 
 	if err != nil {
-		return nil, err
+		return nil, m.ErrMessageMiddlewareMessage
 	}
 
 	return &queueMiddleware{
