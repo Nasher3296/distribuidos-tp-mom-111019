@@ -25,13 +25,22 @@ func NewQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.
 	if err != nil {
 		return nil, m.ErrMessageMiddlewareMessage
 	}
-	defer conn.Close() //Esto se me va a cerrar post constructor. No puedo hacer el defer aca
+	defer func() {
+		if err != nil {
+			conn.Close()
+		}
+	}()
 
 	ch, err := conn.Channel()
 	if err != nil {
 		return nil, m.ErrMessageMiddlewareMessage
 	}
-	defer ch.Close() //Idem lo anterior
+
+	defer func() {
+		if err != nil {
+			ch.Close()
+		}
+	}()
 
 	_, err = ch.QueueDeclare(
 		"hello", // name
