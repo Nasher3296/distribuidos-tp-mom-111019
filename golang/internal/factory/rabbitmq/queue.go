@@ -72,7 +72,7 @@ func (q *queueMiddleware) StartConsuming(callbackFunc func(msg m.Message, ack fu
 	msgs, err := q.channel.Consume(
 		q.queueName, // queue
 		"",          // consumer
-		true,        // auto-ack
+		false,       // auto-ack
 		false,       // exclusive
 		false,       // no-local
 		false,       // no-wait
