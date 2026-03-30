@@ -15,11 +15,6 @@ type queueMiddleware struct {
 	stop      chan any
 }
 
-// Usar estos mensajes de error
-// ErrMessageMiddlewareMessage      = errors.New("message middleware: message error")
-// 	ErrMessageMiddlewareDisconnected = errors.New("message middleware: disconnected")
-// 	ErrMessageMiddlewareClose        = errors.New("message middleware: close error")
-
 func NewQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.Middleware, error) {
 	conn, err := amqp.Dial(fmt.Sprintf("amqp://guest:guest@%s:%d/", connectionSettings.Hostname, connectionSettings.Port))
 	if err != nil {
