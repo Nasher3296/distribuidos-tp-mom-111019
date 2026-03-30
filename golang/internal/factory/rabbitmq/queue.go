@@ -43,11 +43,11 @@ func NewQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.
 	}()
 
 	_, err = ch.QueueDeclare(
-		"hello", // name
-		true,    // durability
-		false,   // delete when unused
-		false,   // exclusive
-		false,   // no-wait
+		queueName, // name
+		true,      // durability
+		false,     // delete when unused
+		false,     // exclusive
+		false,     // no-wait
 		amqp.Table{
 			amqp.QueueTypeArg: amqp.QueueTypeQuorum,
 		},
