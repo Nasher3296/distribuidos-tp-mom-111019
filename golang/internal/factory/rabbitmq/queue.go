@@ -43,9 +43,7 @@ func NewQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.
 		false,     // delete when unused
 		false,     // exclusive
 		false,     // no-wait
-		amqp.Table{
-			amqp.QueueTypeArg: amqp.QueueTypeQuorum,
-		},
+		nil,
 	)
 
 	if err != nil {
