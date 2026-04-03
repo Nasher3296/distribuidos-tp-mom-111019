@@ -103,8 +103,9 @@ func (q *queueMiddleware) StartConsuming(callbackFunc func(msg m.Message, ack fu
 // Si se estaba consumiendo desde la cola/exchange, se detiene la escucha. Si
 // no se estaba consumiendo de la cola/exchange, no tiene efecto, ni levanta
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
-func (q *queueMiddleware) StopConsuming() {
+func (q *queueMiddleware) StopConsuming() error {
 	close(q.stop)
+	return nil
 }
 
 // Envía un mensaje a la cola o a los tópicos con el que se inicializó el exchange.
