@@ -131,7 +131,7 @@ func (q *queueMiddleware) Send(msg m.Message) (err error) {
 	err = q.channel.Publish(
 		"",          // exchange
 		q.queueName, // routing key
-		false,       // mandatory
+		true,        // mandatory
 		false,       // immediate
 		amqp.Publishing{
 			ContentType: "text/plain",
