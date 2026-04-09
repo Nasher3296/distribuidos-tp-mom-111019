@@ -3,9 +3,17 @@ package rabbitmq
 import (
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
+	"time"
 
 	m "github.com/7574-sistemas-distribuidos/tp-mom/golang/internal/middleware"
 	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+const (
+	expBackoffPrefix  = "exp_backoff:"
+	maxExpBackoffSecs = 1000
 )
 
 type exchangeMiddleware struct {
@@ -15,6 +23,7 @@ type exchangeMiddleware struct {
 	queueName    string
 	keys         []string
 	stop         chan any
+	returns      chan amqp.Return
 }
 
 func NewExchangeMiddleware(exchangeName string, keys []string, connectionSettings m.ConnSettings) (m.Middleware, error) {
@@ -71,14 +80,20 @@ func NewExchangeMiddleware(exchangeName string, keys []string, connectionSetting
 		}
 	}
 
-	return &exchangeMiddleware{
+	returns := ch.NotifyReturn(make(chan amqp.Return, 1))
+
+	em := &exchangeMiddleware{
 		conn:         conn,
 		channel:      ch,
 		exchangeName: exchangeName,
 		queueName:    q.Name,
 		keys:         keys,
 		stop:         make(chan any),
-	}, nil
+		returns:      returns,
+	}
+	go em.listenReturns()
+
+	return em, nil
 }
 
 // Comienza a escuchar a la cola/exchange e invoca a callbackFunc tras
@@ -133,6 +148,7 @@ func (q *exchangeMiddleware) StopConsuming() (err error) {
 		}
 	}()
 	close(q.stop)
+	close(q.returns)
 	return nil
 }
 
@@ -144,7 +160,7 @@ func (q *exchangeMiddleware) Send(msg m.Message) (err error) {
 		err = q.channel.Publish(
 			q.exchangeName, // exchange
 			key,            // routing key
-			false,          // mandatory
+			true,           // mandatory
 			false,          // immediate
 			amqp.Publishing{
 				ContentType: "text/plain",
@@ -161,13 +177,65 @@ func (q *exchangeMiddleware) Send(msg m.Message) (err error) {
 	return nil
 }
 
+func (q *exchangeMiddleware) sendRetry(ret amqp.Return) error {
+	var backoff int
+	if ret.Type == "" || !strings.HasPrefix(ret.Type, expBackoffPrefix) {
+		backoff = 1
+	} else {
+		val, err := strconv.Atoi(strings.TrimPrefix(ret.Type, expBackoffPrefix))
+		if err != nil {
+			backoff = 1
+		} else {
+			backoff = val * 10
+		}
+	}
+
+	if backoff > maxExpBackoffSecs {
+		log.Printf("Max backoff reached for exchange=%s key=%s, dropping message", q.exchangeName, ret.RoutingKey)
+		return nil
+	}
+
+	time.Sleep(time.Duration(backoff) * time.Second)
+
+	err := q.channel.Publish(
+		q.exchangeName, // exchange
+		ret.RoutingKey, // routing key
+		true,           // mandatory
+		false,          // immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        ret.Body,
+			Type:        fmt.Sprintf("%s%d", expBackoffPrefix, backoff),
+		})
+
+	if err != nil {
+		if q.conn.IsClosed() {
+			return m.ErrMessageMiddlewareDisconnected
+		}
+		return m.ErrMessageMiddlewareMessage
+	}
+	return nil
+}
+
+func (q *exchangeMiddleware) listenReturns() {
+	for ret := range q.returns {
+		log.Printf("Message returned: exchange=%s key=%s reason=%s", ret.Exchange, ret.RoutingKey, ret.ReplyText)
+		go func() {
+			if err := q.sendRetry(ret); err != nil {
+				log.Printf("Error retrying returned message: exchange=%s key=%s error=%s", ret.Exchange, ret.RoutingKey, err.Error())
+			}
+		}()
+	}
+}
+
 // Se desconecta de la cola o exchange al que estaba conectado.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareClose.
 func (q *exchangeMiddleware) Close() error {
 	errChan := q.channel.Close()
 	errConn := q.conn.Close()
+	err := q.StopConsuming()
 
-	if errChan != nil || errConn != nil {
+	if errChan != nil || errConn != nil || err != nil {
 		return m.ErrMessageMiddlewareClose
 	}
 
