@@ -233,9 +233,8 @@ func (q *exchangeMiddleware) listenReturns() {
 func (q *exchangeMiddleware) Close() error {
 	errChan := q.channel.Close()
 	errConn := q.conn.Close()
-	err := q.StopConsuming()
 
-	if errChan != nil || errConn != nil || err != nil {
+	if errChan != nil || errConn != nil {
 		return m.ErrMessageMiddlewareClose
 	}
 
