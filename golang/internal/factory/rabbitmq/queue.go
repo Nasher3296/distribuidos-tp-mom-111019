@@ -3,6 +3,9 @@ package rabbitmq
 import (
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
+	"time"
 
 	m "github.com/7574-sistemas-distribuidos/tp-mom/golang/internal/middleware"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -13,6 +16,7 @@ type queueMiddleware struct {
 	channel   *amqp.Channel
 	queueName string
 	stop      chan any
+	returns   chan amqp.Return
 }
 
 func NewQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.Middleware, error) {
@@ -50,12 +54,19 @@ func NewQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.
 		return nil, m.ErrMessageMiddlewareMessage
 	}
 
-	return &queueMiddleware{
+	returns := ch.NotifyReturn(make(chan amqp.Return, 1))
+
+	qm := &queueMiddleware{
 		conn:      conn,
 		channel:   ch,
 		queueName: queueName,
 		stop:      make(chan any),
-	}, nil
+		returns:   returns,
+	}
+
+	go qm.listenReturns()
+
+	return qm, nil
 }
 
 // Comienza a escuchar a la cola/exchange e invoca a callbackFunc tras
@@ -134,6 +145,57 @@ func (q *queueMiddleware) Send(msg m.Message) (err error) {
 		return m.ErrMessageMiddlewareMessage
 	}
 	return nil
+}
+
+func (q *queueMiddleware) sendRetry(ret amqp.Return) error {
+	var backoff int
+	if ret.Type == "" || !strings.HasPrefix(ret.Type, expBackoffPrefix) {
+		backoff = 1
+	} else {
+		val, err := strconv.Atoi(strings.TrimPrefix(ret.Type, expBackoffPrefix))
+		if err != nil {
+			backoff = 1
+		} else {
+			backoff = val * 10
+		}
+	}
+
+	if backoff > maxExpBackoffSecs {
+		log.Printf("Max backoff reached for queue=%s, dropping message", q.queueName)
+		return nil
+	}
+
+	time.Sleep(time.Duration(backoff) * time.Second)
+
+	err := q.channel.Publish(
+		"",          // exchange
+		q.queueName, // routing key
+		true,        // mandatory
+		false,       // immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        ret.Body,
+			Type:        fmt.Sprintf("%s%d", expBackoffPrefix, backoff),
+		})
+
+	if err != nil {
+		if q.conn.IsClosed() {
+			return m.ErrMessageMiddlewareDisconnected
+		}
+		return m.ErrMessageMiddlewareMessage
+	}
+	return nil
+}
+
+func (q *queueMiddleware) listenReturns() {
+	for ret := range q.returns {
+		log.Printf("Message returned: queue=%s reason=%s", q.queueName, ret.ReplyText)
+		go func() {
+			if err := q.sendRetry(ret); err != nil {
+				log.Printf("Error retrying returned message: queue=%s error=%s", q.queueName, err.Error())
+			}
+		}()
+	}
 }
 
 // Se desconecta de la cola o exchange al que estaba conectado.
