@@ -11,11 +11,6 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const (
-	expBackoffPrefix  = "exp_backoff:"
-	maxExpBackoffSecs = 1000
-)
-
 type exchangeMiddleware struct {
 	conn         *amqp.Connection
 	channel      *amqp.Channel
