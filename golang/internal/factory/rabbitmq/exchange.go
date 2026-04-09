@@ -148,7 +148,6 @@ func (q *exchangeMiddleware) StopConsuming() (err error) {
 		}
 	}()
 	close(q.stop)
-	close(q.returns)
 	return nil
 }
 
